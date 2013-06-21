@@ -1,0 +1,462 @@
+<?php
+// $Id$
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+//Overview:
+/*
+ * The pippa narratives needed special functionality.
+ * The non-linear narrative nodes make "Choose Your Own Adventure"-
+ * type stories. If that's our metaphor, you can think of this module
+ * as adding the following functionality to the story book:
+ * 1) The book always opens to the last page the reader visited.
+ *    (The reader only has to remember where the book is. In fact,
+ *     the reader will only know the address of the start node.)
+ * 2) Time restrictions can be placed on reading. After that,
+ *    the book closes forever.
+ * 3) The user's path is logged so the author can see it.
+ * 
+ */
+
+
+//Technical overview:
+/*
+ * We're going to keep users from ever seeing the pages
+ * directly. We'll set the Drupal permissions to keep
+ * them out of the non-linear-narrative-choice nodes
+ * Instead, we'll only give them access to the 
+ * first page of the book. These are the 
+ * non-linear-narrative-start nodes.
+ * 
+ * We'll keep track of the story links that the users
+ * click. Without pippa tracking, users simply proceed
+ * through the narrative from link to link. There's nothing
+ * special to be done. Because we don't want to link
+ * directly to choice (page) nodes -- remember, tracked
+ * users cannot access them directly -- we'll do the following:
+ * 1) Rewrite links to trigger a function when clicked.
+ * 2) When the function is triggered, capture the choice
+ *    the user has made in the datbase.
+ * 3) Bring the user back to the front page of the story
+ *    (the start node).
+ * 4) Swap the content of the front page with the content
+ *    of the latest choice the user has made.
+ *
+ * Step 4 is accomplished via hook_node_view,
+ * which allows us to modify a node's content in a
+ * (relative) simple manner by adding/removing content 
+ * from Drupal render arrays before rendering.
+ *
+ * Step 1 is accomplished via hook_entity_view_alter,
+ * which allows us to modify rendered HTML. We'll just use
+ * a regular expression to look for and modify the links.
+ * The links point to a custom function; a route to the
+ * function is added via hook_menu.
+ */
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+// We'll cache the user's path here, to avoid multiple db hits.
+$pippa_cache = array();
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+// Hooks:
+/*Hooks are the functions that Drupal
+ *uses to allow modules to interact with
+ *the Drupal core
+ */
+
+
+// Implements hook_install
+// Imports the necessary content types
+// if they don't already exist when the
+// pippa module is installed.
+function pippa_install(){
+  include 'pippa_import.php';
+}
+
+// Implements hook_enable
+function pippa_enable(){
+  // Check if table exists. If not, install the schema.
+  if(db_table_exists('pippa') == FALSE){
+    drupal_install_schema('pippa');
+  }
+}
+
+
+// Implements hook_permission
+// This simply exposes information about the
+// permissions this module defines.
+function pippa_permission() {
+  return array(
+	       'pippa bypass'             => array(
+		    'title' => t('pippa bypass'),
+		    'description' => t('Users who do not have this permission will access the non-linear narratives under the pippa rules. Access to non-linear narratives may be limited in duration. Users\' movements through the narratives will also be tracked.'),
+							));
+}
+
+
+
+// Implements hook_node_access
+// On non_linear_narrative_choice nodes,
+// we're going to bar users from accessing
+// our content directly. (We'll modify
+// the front page to always show the most
+// recent page they've visited.)
+function pippa_node_access($node, $op, $account) {
+  // If the user doesn't have permission to bypass 'pippa' ...
+  if (!user_access('pippa bypass') 
+      // and this is a choice node...
+      && isset($node->type) && $node->type == 'non_linear_narrative_choice') {
+    // Deny access.
+    return NODE_ACCESS_DENY;
+  }
+}
+
+
+
+// Implements hook_menu
+// hook menu is used to map functions
+// to URLs in Drupal
+function pippa_menu() {
+  // As mentioned, we're going to track the links
+  // that users click. This defines an URL format for
+  // those links and a callback function.
+  // Our URLs have this format:
+  // http://[base_url]/pippa/load/100/200
+  // Note that 100 and 200 are merely examples.
+  // In our example:
+  // 100 is node id of the first page of the story
+  // (again non-linear-narrative-start)
+  // and 200 is the node id of the page the user
+  // wants to visit next.
+  $items['pippa/load'] = array(
+					       'page callback' => '_pippa_load_node',
+					       'title' => 'Narrative',
+					       'access arguments' => array('access content'),
+					       'page arguments' => array(3),
+					       'type' => MENU_CALLBACK,
+					       );
+
+  return $items;
+}
+
+
+
+
+// Implements hook_node_view
+// Here we're going to do the substitions for the node content.
+// We're only going to be working with pippa start nodes,
+// swapping out their content with the latest choice node that
+// the user has visited.
+// 
+// Note that we'll only do this for tracked users.
+function pippa_node_view($node, $view_mode, $langcode){
+
+  // Should we be dealing with this node?
+  // If not, return early.
+  if($node->type !== 'non_linear_narrative_start' ||
+     $view_mode !== 'full' ||
+     user_access('pippa bypass')
+     ){
+    return $node;
+  }
+
+
+  global $user;
+  $start_nid = _nid_from_address_bar();
+  $path = _pippa_get_user_path($user->uid, $start_nid);
+
+
+  // Add pippa's js. Nothing major in there, but there 
+  // are a few functions that help usability.
+  $module_path = drupal_get_path('module', 'pippa');
+  drupal_add_js($module_path . '/pippa.js', array('weight' => 1));
+
+  // User hasn't started this narrative, return early.
+  if(!$path){
+    return $node;
+  }
+
+
+  // If time is up ...
+  if(_pippa_time_is_up($start_nid)) {
+    // Set message.
+    $node->content['body'][0]['#markup'] = t('Time is up for this narrative.');
+    // Remove story links.
+    $node->content['field_links'] = array();
+    // Remove media.
+    $node->content['field_media'] = array();
+    return $node;
+  }
+
+
+  // Ok, so the user has been here before and time is not up.
+  // Replace the contents of the start node with the
+  // contents of the last node visited.
+
+  // Get the last nid accessed.
+  $last_step = end($path);
+  $last_nid_accessed = $last_step['nid'];
+
+  // Load up the substitute node.
+  $substitute_node = node_load($last_nid_accessed);
+
+  // Coax it to the same 'rendering level' (view) as $node
+  $node_view = node_view($substitute_node);
+
+  // Swap the content.
+  $node->content = $node_view;
+  
+  // Return the node.
+  return $node;
+}
+
+
+
+// Implements hook_entity_view_alter
+// This is one of the last hooks called.
+// We're going to use this hook to rewrite the links.
+function pippa_entity_view_alter(&$build, $type) {
+  if(isset($build['#bundle']) && 
+     ($build['#bundle'] === 'non_linear_narrative_start' ||
+      $build['#bundle'] === 'non_linear_narrative_choice') && // if this is the first page of the story ...
+     !user_access('pippa bypass')){ // and if the user doesn't have permission NOT to be tracked ...
+    if ($build['#view_mode'] == 'full') { // and we're looking at the full node ...
+      // add a #post_render callback to act on the rendered HTML of the entity.
+
+      $build['#post_render'][] = '_pippa_rewrite_links';
+    }
+  }
+}
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+/* Helper function definitions for rewriting the start node page
+ */
+
+// Rewrite links to point to the URL defined up in pippa_menu
+// This is a brittle solution, but appears to be the only one that
+// works for now.
+function _pippa_rewrite_links($child, $elements){
+  global $user;
+  $start_nid = _nid_from_address_bar();
+  $path = _pippa_get_user_path($user->uid, $start_nid);
+
+  return preg_replace('/node\//', 'pippa/load/' . $start_nid . '/', $child);
+};
+
+
+
+// And this is the callback from clicking on the links
+// that were rewritten above. Callback is set by pippa_menu.
+function _pippa_load_node($choice_node_nid, $start_node_nid) {
+  if(!isset($choice_node_nid) || !isset($start_node_nid)){
+    return;
+  }
+  // Capture where the reader was going ...
+  _pippa_create_narrative_record($choice_node_nid, $start_node_nid);
+  // ...and send him back to the start page
+  // We'll rewrite the content when he gets there...
+  drupal_goto("node/" . $start_node_nid);
+}
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+/* Helper function definitions for capturing and retrieving the
+ * user's path from the database.
+ * Records in the db look like this:
+ * record_id | uid     | start_nid     | nid            | datetime
+ * Record ID | User ID | Start Node ID | Choice Node ID | Time of access of Choice Node
+ */
+
+
+// Returns a new narrative record for this user/start node/choice node combination.
+function _pippa_create_narrative_record($nid, $start_nid) {
+  //Sanity check
+  if(!isset($nid) || !isset($start_nid) || $nid == $start_nid){
+    return;
+  }
+
+  global $user;
+  $narrative_record = array();
+  $narrative_record['start_nid'] = $start_nid;
+  $narrative_record['nid'] = $nid; // Choice node nid
+  $narrative_record['uid'] = $user->uid;
+  $narrative_record['datetime'] = time();
+  drupal_write_record('pippa', $narrative_record);
+}
+
+// Grab the pippa record for this user and start-node from the db.
+// Returns an array of the steps the user has taken in this narrative.
+function _pippa_get_user_path($uid, $start_nid) {
+  if(!isset($uid) || !isset($start_nid)) return array();
+
+  if(isset($pippa_cache['path'][$uid][$start_nid])){
+    return $pippa_cache['path'][$uid][$start_nid];
+  }
+
+  $record = db_query('SELECT * FROM {pippa} WHERE uid = :uid AND start_nid = :start_nid ORDER BY datetime', array(
+											':uid' => $uid,
+											':start_nid' => $start_nid,
+														      ))->fetchAll();
+
+  $return_record = array();
+  foreach($record as $r){
+    $return_record[] = get_object_vars($r);
+  }
+
+  $pippa_cache['path'][$uid][$start_nid] = $return_record;
+
+  return $return_record;
+}
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+/* Helper function definitions for 
+ * tracking time.
+ */
+
+// Get the allotted time for this start node
+function _pippa_get_allotted_time($start_nid) {
+  global $pippa_cache;
+
+  if(!isset($start_nid))return NULL;
+
+  $start_nid = (int)$start_nid;
+
+  //Check cache
+  if(isset($pippa_cache['allotted_time'][$start_nid])){
+    return $pippa_cache['allotted_time'][$start_nid];
+  }
+
+  $start_node = node_load($start_nid);
+
+  $allotted_time = NULL;
+
+  if (isset($start_node, $start_node->field_allotted_time[$start_node->language][0]['value'])){
+    $allotted_time = (int)$start_node->field_allotted_time[$start_node->language][0]['value'];
+  }
+
+  // Capture in cache.
+  $pippa_cache['allotted_time'][$start_nid] = $allotted_time;
+
+  // Drupal node structure is pretty deep. 
+  // Not sure if there's a better way
+  // to get the 'allotted_time' value.
+  return $allotted_time;
+}
+
+
+// Check to see if this user's time is up on this
+// narrative.
+function _pippa_time_is_up($start_nid) {
+  global $user;
+  global $pippa_cache;
+
+  $path = _pippa_get_user_path($user->uid, $start_nid);
+  if(!isset($path) || !$path) return FALSE;
+
+  //Check cache
+  if(isset($pippa_cache['time_is_up'][$user->uid][$start_nid])){
+    return $pippa_cache['time_is_up'][$user->uid][$start_nid];
+  }
+
+  $allotted_time = _pippa_get_allotted_time($start_nid);
+  // No allotted_time or allotted_time is 0, return.
+  if(!$allotted_time)return false;
+
+  $start_time = (int)$path[0]['datetime'];
+
+  $time_paused = 0;
+
+  // The pippa_pause module may not be active,
+  // so check if function_exists
+  if(function_exists('_pippa_get_seconds_paused')){
+    $time_paused = _pippa_get_seconds_paused($user->uid, $path[0]['start_nid']);
+  }
+
+  $time_is_up = FALSE;
+  if (!isset($allotted_time) || !isset($start_time)) {
+    $time_is_up = FALSE;
+  }
+  elseif ($start_time + $allotted_time + $time_paused < time()) {
+    $time_is_up = TRUE;
+  }
+
+  $pippa_cache['time_is_up'][$user->uid][$start_nid] = $time_is_up;
+
+  return $time_is_up;
+}
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+/*
+ * Misc function
+ */ 
+
+// Ok, so this has a terrible name, but the calling context 
+// needs to know that the nid comes from the address bar.
+function _nid_from_address_bar(){
+  // Get the node nid form the address bar
+  // http://stackoverflow.com/questions/4854912/get-nodeid-in-drupal/4855098#4855098
+    $nid = NULL;
+    if ($node = menu_get_object()) {
+	$nid = $node->nid;
+    }
+    return $nid;
+}
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+
+

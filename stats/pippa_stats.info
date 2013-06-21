@@ -1,0 +1,7 @@
+; $Id$
+name = Statistics
+description = Creates pages that display the paths that tracked users have taken. See admin/pippa/statistics.
+core = 7.x
+package = pippa
+files[] = pippa_stats.module
+dependencies[] = pippa

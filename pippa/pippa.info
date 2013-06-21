@@ -1,0 +1,9 @@
+; $Id$
+name = PIPPA
+description = Creates content types necessary for the pippa project and permits tracking of users on pippa content.
+core = 7.x
+package = pippa
+files[] = pippa.module
+files[] = pippa.install
+dependencies[] = bundle_copy
+dependencies[] = node_reference

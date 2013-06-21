@@ -1,0 +1,7 @@
+; $Id$
+name = Mark visited narrative links
+description = Indicates to tracked users which links have been visited.
+core = 7.x
+package = pippa
+files[] = pippa_visited_links.module
+dependencies[] = pippa

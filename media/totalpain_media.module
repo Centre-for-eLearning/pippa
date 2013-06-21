@@ -1,0 +1,17 @@
+<?php
+/**
+ * @file
+ * adds Flowplayer for FLV and MP3 files
+ *
+ */
+
+/**
+ * Implements hook_node_view().
+ */
+
+
+function totalpain_media_node_view($node, $view_mode, $langcode) {
+  drupal_add_js(drupal_get_path('module', 'totalpain_media') . '/flowplayer/flowplayer.min.js');
+  drupal_add_js('totalpain_media={player:"' . drupal_get_path('module', 'totalpain_media') . '/flowplayer/flowplayer.swf"}', 'inline');
+  drupal_add_js(drupal_get_path('module', 'totalpain_media') . '/totalpain_media.js');
+}

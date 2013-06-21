@@ -1,0 +1,284 @@
+<?php
+// $Id$
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+//Overview:
+/*
+ * This module enables pausing in the pippa stories. The
+ * stories are optionally timed. With this module enabled, if
+ * a user wishes, he can click on a button to pause the story.
+ * While paused, the story is hidden from view. Only an "unpause"
+ * button is shown on screen.
+ */
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+// Hooks:
+/*Hooks are the functions that Drupal
+ *uses to allow modules to interact with
+ *the Drupal core
+ */
+
+
+// Implements hook_menu
+// hook menu is used to map URLs
+// to functions in Drupal
+function pippa_pause_menu() {
+  // When the users click on the pause (or unpause)
+  // buttons, they'll be taken to one of these
+  // two addresses, with the nid of the start
+  // node to pause appended to the end, 
+  // e.g., pippa/pause/338 will
+  // trigger the function to pause start node 338.
+  $items['pippa/pause'] = array(
+					       'page callback' => '_pippa_pause',
+					       'title' => 'Narrative',
+					       'access arguments' => array('access content'),
+					       'page arguments' => array(2),
+					       'type' => MENU_CALLBACK,
+				    );
+
+  $items['pippa/unpause'] = array(
+					       'page callback' => '_pippa_unpause',
+					       'title' => 'Narrative',
+					       'access arguments' => array('access content'),
+					       'page arguments' => array(2),
+					       'type' => MENU_CALLBACK,
+				      );
+
+  return $items;
+}
+
+
+// Implements hook_enable
+function pippa_pause_enable(){
+  // Check if table exists. If not, install the schema.
+  if(db_table_exists('pippa_pause') == FALSE){
+    drupal_install_schema('pippa_pause');
+  }
+}
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+// This is the meat of this module.
+// We'll add a pause button if the narrative
+// is unpaused. If it's already paused,
+// we'll clear out the content, add a 'paused'
+// message, and an unpause button.
+// All this assumes we're working on the appropriate
+// node.
+// Implements hook_node_view
+function pippa_pause_node_view($node, $view_mode, $langcode){
+  //Should we go ahead?
+  if(!_pippa_node_is_pauseable($node, $view_mode)){
+    return $node;
+  }
+
+  $start_nid = _nid_from_address_bar();
+
+  if (_pippa_is_paused($start_nid)){
+    $node->title = ''; // Clear the title;
+    $node->content = array(); // Clear out the content render array.
+    $node->content['pause'] = array(
+				    '#markup' => _pippa_pause_get_message($start_nid),
+				    );
+
+    //Add this to the node: 
+  }else{
+    $node->content['pause'] = array(
+				    '#markup' => _pippa_get_pause_button($start_nid),
+				    );
+  }
+
+  return $node;
+}
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+/* Helper function
+ */
+// Is this node pauseable?
+// It is if: 
+// * the node is in full view
+// * the user can't bypass tracking
+// * the story is timed
+// * time is not up
+// * the node type is 'non_linear_narrative_choice'
+//
+function _pippa_node_is_pauseable($node, $view_mode){
+  return ($view_mode === 'full' && 
+	  !user_access('pippa bypass') &&
+	  _pippa_get_allotted_time(_nid_from_address_bar()) && 
+	  !_pippa_time_is_up(_nid_from_address_bar()) &&
+	  $node->type === 'non_linear_narrative_choice');
+}
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+/* Menu callbacks
+ */
+
+function _pippa_pause($start_nid, $b){
+  if(!isset($start_nid)){return;}
+  if(!_pippa_is_paused($start_nid)){
+    _pippa_create_pause_record($start_nid);
+  }
+  drupal_goto("node/" . $start_nid);
+}
+
+
+function _pippa_unpause($start_nid){
+  if(!isset($start_nid)){return;}
+  _pippa_close_pause_record($start_nid);
+  drupal_goto("node/" . $start_nid);  
+}
+
+
+function _pippa_is_paused($start_nid){
+  global $user;
+  $record = db_query('SELECT * FROM {pippa_pause} WHERE uid = :uid AND start_nid = :start_nid ORDER BY datetime_pause DESC', array(  
+											':uid' => $user->uid,
+											':start_nid' => $start_nid,
+																	 ))->fetchObject();
+  
+  // There's no record, so we're not paused.
+  if(!isset($record) || !$record){
+    return false;
+  }
+
+  // There's a record.
+  // If datetime_pause is set and datetime_unpause
+  // is not, we're paused.
+  $record = get_object_vars($record);
+  if(!$record['datetime_unpause'] && $record['datetime_pause']){
+    return true;
+  }
+
+  return false;
+}
+
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+/* Helper function definitions for capturing and retrieving the
+ * user's path from the database.
+ * Records in the db look like this:
+ * record_id | uid     | start_nid     | datetime_pause      | datetime_unpause
+ * Record ID | User ID | Start Node ID | Time of pause start | Time of pause stop
+ */
+
+
+// Returns a new narrative record for this user/start node/choice node combination.
+function _pippa_create_pause_record($start_nid) {
+  global $user;
+  $narrative_record = array();
+  $narrative_record['start_nid'] = $start_nid;
+  $narrative_record['uid'] = $user->uid;
+  $narrative_record['datetime_pause'] = time();
+  drupal_write_record('pippa_pause', $narrative_record);
+}
+
+function _pippa_close_pause_record($start_nid){
+  global $user;
+  $record = db_query('SELECT * FROM {pippa_pause} WHERE uid = :uid AND start_nid = :start_nid ORDER BY datetime_pause DESC', array(
+											':uid' => $user->uid,
+											':start_nid' => $start_nid,
+														      ))->fetchAssoc();
+  
+  if(!isset($record['datetime_unpause'])){
+    $update = array('datetime_unpause' => time(), 'record_id' => $record['record_id']);
+    $key = 'record_id';
+    drupal_write_record('pippa_pause', $update, $key);
+  }
+
+}
+
+// Grab the pippa_pause record for this user and start-node from the db.
+// Returns an array of the steps the user has taken in this narrative.
+function _pippa_get_seconds_paused($uid, $start_nid) {
+  $record = db_query('SELECT * FROM {pippa_pause} WHERE uid = :uid AND start_nid = :start_nid', array(
+											':uid' => $uid,
+											':start_nid' => $start_nid,
+														      ))->fetchAll();
+
+  $seconds = 0;
+  foreach($record as $r){
+    $r = get_object_vars($r);
+    if(isset($r['datetime_unpause']) && isset($r['datetime_pause'])){
+      $seconds += ($r['datetime_unpause'] - $r['datetime_pause']);
+    }else if(isset($r['datetime_pause'])){
+      // This is a faster way of checking "is_paused"
+      // Return a bunch of seconds; we should never run out
+      // if while we're still paused.
+      $seconds += time();
+    }
+  }
+
+  
+
+  return $seconds;
+}
+
+//////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////
+
+
+function _pippa_pause_get_message($nid){
+
+  $msg = t('This narrative is paused.');
+  $unpause_btn_text = t('Play');
+
+  // We'll make this a form, since that seems to be the Drupal
+  // norm for this kind of thing. Really, we just need a link
+  // to 'pippa_unpause/[$nid]
+  $url = url('pippa/unpause/' . $nid);
+  
+  $form_start = '<div class="pause_button unpause"><form action="' . $url . '" method="post">';
+  $button = '<input type="submit" value="' . $unpause_btn_text . '" class="form-submit">';
+  $form_end = '</form></div>';
+
+  return $msg . $form_start . $button . $form_end;
+}
+
+
+function _pippa_get_pause_button($nid){
+  $pause_btn_text = t('Pause');
+  $url = url('pippa/pause/' . $nid);
+  $form_start = '<div class="pause_button pause"><form action="' . $url . '" method="post">';
+  $button = '<input type="submit" value="' . $pause_btn_text . '" class="form-submit">';
+  $form_end = '</form></div>';
+
+  return $form_start . $button . $form_end;
+}

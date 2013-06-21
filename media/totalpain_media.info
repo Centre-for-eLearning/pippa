@@ -1,0 +1,7 @@
+; $Id$
+name = Media
+description = Sets HTML formatting for media accepted by the pippa website.
+core = 7.x
+package = pippa
+files[] = totalpain_media.module
+dependencies[] = pippa

@@ -1,0 +1,77 @@
+<?php
+  /**
+   * @file
+   * Creates a page that shows ongoing narratives or redirects user to
+   * sole ongoing narrative.
+   *
+   */
+
+  /**
+   * Implements hook_menu().
+   */
+
+function pippa_ongoing_menu(){
+  $items['pippa/ongoing'] = array(
+				    'title' => 'Ongoing narratives',
+				    'access callback' => 'user_access',
+				    'access arguments' => array('access content'),
+				    'page callback' => 'pippa_ongoing',
+				    );
+  return $items;
+}
+
+
+function pippa_ongoing(){
+  global $user;
+
+  //Find started narratives
+  $ongoing_records = pippa_ongoing_get_records();
+
+  if(!$ongoing_records){
+    //There are none
+    return t("There are no ongoing narratives.");
+  }
+
+  //There is more than one
+  if(count($ongoing_records) > 1){
+    //Return a list for the user to choose from.
+      return pippa_ongoing_format_records($ongoing_records);
+  }
+
+  if(count($ongoing_records) == 1){
+    //There is one ongoing record. Go there.
+    drupal_goto('node/' . $ongoing_records[0]->start_nid);
+  }
+  
+  return;
+
+}
+
+
+function pippa_ongoing_get_records(){
+  global $user;
+  $uid = $user->uid;
+  $result = db_query('SELECT DISTINCT tp.start_nid, node.title FROM {pippa} tp, {node} node 
+WHERE tp.uid = :uid AND tp.start_nid = node.nid', array(':uid' => $uid,));
+
+  //Weed out timed out start nodes.
+  $records_to_return = array();
+  foreach($result as $record){
+    if(!_pippa_time_is_up($record->start_nid)){
+      $records_to_return[] = $record;
+    }
+  }
+  return $records_to_return;
+}
+
+
+function pippa_ongoing_format_records($records) {
+    $list = array();
+    $list['title'] = t('These narratives are currently ongoing. Select a narrative to view.');
+    $list['items'] = array();
+    foreach ($records as $record) {
+      $list['items'][] = l($record->title, 'node/' . $record->start_nid); //Map the titles to an array by nid.
+    };
+
+    return theme('item_list', $list);
+}

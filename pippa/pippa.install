@@ -1,0 +1,73 @@
+ <?php
+// $Id$
+
+/**
+ * @file
+ * TODO: Enter file description here.
+ */
+
+/**
+ * Implements hook_schema().
+ */
+
+function pippa_schema() {
+  $schema['pippa'] = array(
+    'description' => t('Stores the usage statistics for non-linear narrative nodes.'),
+    'fields' => array(
+      'record_id'      => array(
+        'description' => 't(The primary identifier of this record.)',
+        'type'        => 'serial',
+        'unsigned'    => TRUE,
+        'not null'    => TRUE,
+      ),
+      'start_nid'           => array(
+        'description' => 'The {node}.nid of the starting node.',
+        'type'        => 'int',
+        'not null'    => TRUE,
+        'default'     => 0,
+      ),
+      'nid'	=> array(
+	'description' => 'The {node}.nid of the choice node visited.',
+	'type'        => 'int',
+	'not null'    => TRUE,
+        'default'     => 0,
+      ),    
+      'uid' => array(
+        'description' => t('The {user}.uid of the user.'),
+        'type'        => 'int',
+        'not null'    => TRUE,
+        'default'     => 0,
+      ),
+      'datetime' => array(
+	'description' => t('The moment the user accessed the node.'),
+	'type'        => 'int',
+	'not null'    => TRUE, 
+	'sortable'    => TRUE, 
+	'views'       => TRUE,
+      ),
+    ),
+    'indexes' => array(
+		       'pippa_datetime' => array('datetime'),
+		       'pippa_uid'      => array('uid'),
+		       'pippa_path'     => array('uid', 'start_nid'),
+    ),
+    'primary key' => array('record_id'),
+    'foreign keys' => array(
+		       'pippa_user' => array(
+			 'table'        => 'user',
+			 'columns'      => array('uid' => 'uid'),
+		       ),
+		       'pippa_start_nid' => array(
+			 'table'             => 'node',
+			 'columns'           => array('start_nid' => 'nid'),
+		       ),
+		       'pippa_nid'  => array(
+			 'table'        => 'node',
+			 'columns'      => array('nid' => 'nid'),
+		       ),
+		     )
+  );
+
+
+  return $schema;
+}

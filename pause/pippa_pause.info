@@ -1,0 +1,9 @@
+; $Id$
+name = Pause
+description = Enables pausing for the pippa project.
+core = 7.x
+package = pippa
+files[] = pippa_pause.module
+files[] = pippa_pause.install
+files[] = pippa_pause.test
+dependencies[] = pippa

@@ -1,0 +1,73 @@
+<?php
+  /**
+   * @file
+   * Adds a string to denote visited links
+   * for the pippa narratives.
+   *
+   * In this module, we're going to use
+   * hook_node_view to alter the render
+   * array of the pippa node's links.
+   * Namely, if a link has already been visited,
+   * we're going to add a string the end of
+   * the '#title' attribute of elements
+   * in the $node->content['field_links'] array.
+   */
+
+
+
+  /* Implements hook_node_view  
+   */
+
+function pippa_visited_links_node_view($node, $view_mode, $langcode) {
+  global $user;
+  $start_nid = _nid_from_address_bar(); // defined in pippa.module
+  $path = _pippa_get_user_path($user->uid, $start_nid);
+
+  $visited_str = t('(visited)');
+  
+  // Get the nids the user has visited.
+  $visited_nids = array();
+  foreach($path as $step){
+    $visited_nids[] = $step['nid'];
+  }
+
+  // The 'indexed' part (i.e., the keys that are numbers, not strings)
+  // of the $node->content['field_links'] array contains the titles of 
+  // the links, which is what we're going to change. We don't want 
+  // the associative keys from the array (i.e., the keys that are strings),
+  // so we'll use a while loop to iterate over the indexes, rather than
+  // the usual foreach($array as $value)
+  $i = 0;
+  while(isset($node->content['field_links'][$i])){
+    // An "alias" will make this easier to read.
+    $l = $node->content['field_links'][$i];
+
+    if(isset($l['#title']) && // If there's a title
+       !isset($l['#pippa_visited']) // ... and if we haven't done this before.
+      ){
+
+      // Add a flag to make sure we don't do this again.
+      $l['#pippa_visited'] = 't';
+
+      // If this link's nid has been visited ...
+      if(isset($l['#options']['entity']->nid) &&
+	 in_array($l['#options']['entity']->nid, $visited_nids)
+	 ){
+	// ... then add the visited string to the title
+	$l['#title'] = $l['#title'] . ' ' . $visited_str;
+      }
+
+      // PHP assigns arrays by value copying
+      // (in other words, our "alias" isn't a reference,
+      // to part of an array, it's a separate copy.)
+      // ... so we need to assign our "alias" back 
+      // to the original.
+      $node->content['field_links'][$i] = $l;
+    }
+    // Iterate
+    $i ++;
+  }
+
+  
+  return $node;
+}
