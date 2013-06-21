@@ -1,0 +1,88 @@
+PIPPA is an open source package that alllows easy creation of non-linear narratives.
+
+
+|================================================|
+| Background                                     |
+|================================================|
+
+The PIPPA package has been developped based on the Total Pain project, where the user/student has a specific amount of time to navigate through the patient's non-linear story.
+
+The non-linear story and time restriction keep the student from viewing all the pieces of the story. 
+Each student is building his/her own interpretation of the patient's story individually. Then, the students are grouped together in interprofessional teams and ask to exchange and share with the group. Ultimately they will create a collective understanding of the patient.
+
+By its ease of use and simplicity, PIPPA can be adapted to multiple disciplines and even more.
+
+
+|================================================|
+| Try a Demo as the user/student sees the story  |
+|================================================|
+ 
+https://pippa.uottawa.ca
+Auto-registration is enabled, user has 20 min to navigate in the narrative.
+
+
+|================================================|
+| Installation (Tested on Drupal 7.9)            |
+|================================================|
+
+Activate the required modules first before proceeding to PIPPA's. For some reason it won't work if you enable PIPPA along with the others all in one shot :
+
+.Chaos Tools
+.Bundle Copy
+.References
+.Node Reference
+.Views
+
+
+Then enable :
+
+.PIPPA
+
+.Media
+.Links to ongoing narratives
+.Pause
+.Statistics (the one in the PIPPA package)
+.Visited Links
+
+
+|================================================|
+| Configuration                                  |
+|================================================|
+
+Clean URLs = Disabled
+Views > Import View > Import >(file content:views-import-available-narratives.txt)
+
+
+|================================================|
+| License (Creative Commons)                     |
+|================================================|
+
+This package is licensed under a Creative Commons Attribution-ShareAlike 3.0 Unported License.
+http://creativecommons.org/licenses/by-sa/3.0/deed.en_US
+
+
+|=======================|
+| Getting Started Guide |
+|=======================|
+
+Setup PIPPA on Drupal : 
+http://www.tlss.uottawa.ca/cyber/pippa
+
+Creating your first narrative : 
+http://www.tlss.uottawa.ca/cyber/pippa
+
+
+|=============================================|
+| How to conceptualize a non-linear-narrative |
+|=============================================|
+
+Conceptualizeing a non-linear narrative is actually a rather long and complicated process.
+We've opened a wiki - http://elearningsandbox/pippa/wiki - to create the best conception guide. Feel free to contribute!
+
+
+|==================|
+| More Information |
+|==================|
+
+http://www.tlss.uottawa.ca/cyber/pippa
+
